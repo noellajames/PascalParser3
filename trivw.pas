@@ -20,10 +20,14 @@
                                          (goto 0))))))         }
 
 program graph1(output);
-var i,lim : integer;
+label 1492, 1776;
+var i,lim,k : integer;
 begin
    lim := 7;
+1492:
+    k := 10;
     while i < lim do
-   		i := i + 1
+   		i := i + 1;
+   	goto 1492
 end.
 

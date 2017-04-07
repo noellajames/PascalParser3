@@ -41,6 +41,10 @@
         /* define the type of the Yacc stack element to be TOKEN */
 #define YYSTYPE TOKEN
 TOKEN parseresult;
+        /* maximum amount of user labels */
+#define MAX_USER_LABEL	100
+
+int user_label[MAX_USER_LABEL];
 %}
 
 /* Order of tokens corresponds to tokendefs.c; do not change */
@@ -65,9 +69,13 @@ TOKEN parseresult;
 
   program    :  PROGRAM IDENTIFIER LPAREN id_list RPAREN SEMICOLON lblock DOT   { parseresult = makeprogram($2, $4, $7); }
              ;
-  lblock     :  cblock
+  lblock     :  LABEL numlist SEMICOLON cblock     { $$ = $4; }
+             |  cblock
              ;
-  cblock     :  CONST cdef_list tblock	{ $$ = $3; } 
+  numlist    :  NUMBER COMMA numlist	            { instlabel($1); }
+  	  	     |  NUMBER                              { instlabel($1); }
+		     ;
+  cblock     :  CONST cdef_list tblock	            { $$ = $3; } 
   	  	  	 |  tblock
   	  	  	 ;
   cdef_list  :  cdef SEMICOLON cdef_list            { /* do nothing */ }
@@ -77,6 +85,8 @@ TOKEN parseresult;
   	  	  	 ;
   tblock     :  vblock
   	  	     ;
+  label      :  NUMBER COLON statement              { $$ = dolabel($1, $2, $3); }
+             ;
   statement  :  BEGINBEGIN statement endpart
                                        { $$ = makeprogn($1,cons($2, $3)); }
              |  IF expr THEN statement endif   { $$ = makeif($1, $2, $4, $5); }
@@ -86,6 +96,8 @@ TOKEN parseresult;
              |  REPEAT statement_list UNTIL expr		{$$ = makerepeat($1, $2, $3, $4); }
              |  assignment
 			 |  funcall
+			 |  GOTO NUMBER                       { $$ = dogoto($1, $2); }
+			 |  label
              ;
   statement_list  :  statement SEMICOLON statement_list			{ $$ = cons($1, $3); }
   	  	  	  	  |  statement 
@@ -595,6 +607,65 @@ TOKEN makewhile(TOKEN tok, TOKEN expr, TOKEN tokb, TOKEN statement) {
 	return makeprogn(talloc(), label_tok);
 }
 
+/* instlabel installs a user label into the label table */
+void  instlabel (TOKEN num) {
+	user_label[labelnumber++] = num->intval;
+}
+
+void inituserlabel() {
+	int i;
+	for (i = 0; i < MAX_USER_LABEL; i++) {
+		user_label[i] = -1;
+	}
+}
+
+/* 
+ (progn (label 0)
+       (:= (aref (^ fred)
+            0)
+         20))
+ */
+/* dolabel is the action for a label of the form   <number>: <statement>
+   tok is a (now) unused token that is recycled. */
+TOKEN dolabel(TOKEN labeltok, TOKEN tok, TOKEN statement) {
+	int i;
+	int found_label = 0;
+	for (i = 0; (i < MAX_USER_LABEL) && (user_label[i] != -1); i++) {
+		if (user_label[i] == labeltok->intval){
+			found_label = 1;
+			break;
+		}
+	}
+	if (found_label == 0) {
+		yyerror("undeclared label");
+		return statement;
+	} 
+	TOKEN label = makeop(LABELOP);
+	TOKEN labelnum = makeintc(i);
+	unaryop(label, labelnum);
+	tok = makeprogn(talloc(), label);
+	tok->operands->link = statement;
+	return tok;
+}
+
+/* dogoto is the action for a goto statement.
+   tok is a (now) unused token that is recycled. */
+TOKEN dogoto(TOKEN tok, TOKEN labeltok) {
+	int i;
+	int found_label = 0;
+	for (i = 0; (i < MAX_USER_LABEL) && (user_label[i] != -1); i++) {
+		if (user_label[i] == labeltok->intval){
+			found_label = 1;
+			break;
+		}
+	}
+	if (found_label == 0) {
+		yyerror("undeclared label");
+		return tok;
+	} 
+	return makegoto(i);
+}
+
 
 int wordaddress(int n, int wordsize)
   { return ((n + wordsize - 1) / wordsize) * wordsize; }
@@ -607,6 +678,7 @@ yyerror(s)
 main()
   { int res;
     initsyms();
+    inituserlabel(); /* initializing user tabel */
     res = yyparse();
     printst();
     printf("yyparse result = %8d\n", res);
