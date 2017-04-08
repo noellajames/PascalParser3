@@ -21,10 +21,13 @@
 
 program graph1(output);
 label 1492, 1776;
+type color = (red, white, blue);
 var i,lim,k : integer;
 x: array[1..10] of integer;
 y: array[1..5] of real;
-z: array[1..5,1..10] of real;
+z: array[1..5,1..10] of real; 
+z1: array[1..5, color] of real; 
+c: color;
 begin
    lim := 7;
 1492:

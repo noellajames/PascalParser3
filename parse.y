@@ -83,10 +83,10 @@ int user_label[MAX_USER_LABEL];
              ;
   cdef       :  IDENTIFIER EQ constant              { instconst($1, $3); }
   	  	  	 ;
-  tdef       :  IDENTIFIER EQ type
+  tdef       :  IDENTIFIER EQ type                  { insttype($1, $3); }
              ;
-  tdef_list  :  tdef SEMICOLON tdef_list            { /* do nothing */ }
-  	  	  	 |  tdef SEMICOLON                      { /* do nothing */ }
+  tdef_list  :  tdef SEMICOLON tdef_list            { $$ = cons($1, $3); }
+  	  	  	 |  tdef SEMICOLON                      { $$ = $1; }
 		     ;
   tblock     :  TYPE tdef_list vblock               { $$ = $3; }
              |  vblock
@@ -120,7 +120,7 @@ int user_label[MAX_USER_LABEL];
              | IDENTIFIER
 			 ;
   simple_type : IDENTIFIER
-              | LPAREN id_list RPAREN          { $$ = $2; }
+              | LPAREN id_list RPAREN          { $$ = instenum($2); }
               | constant DOTDOT constant       { $$ = instdotdot($1, $2, $3); }
               ;
   simple_type_list : simple_type COMMA simple_type_list        { $$ = cons($1, $3); }
@@ -197,7 +197,7 @@ int user_label[MAX_USER_LABEL];
    You will want to change DEBUG to turn off printouts once things
    are working.
   */
-#define DEBUG        1023             /* set bits here for debugging, 0 = off  */
+#define DEBUG       2047            /* set bits here for debugging, 0 = off  */
 #define DB_CONS       1             /* bit to trace cons */
 #define DB_BINOP      2             /* bit to trace binop */
 #define DB_MAKEIF     4             /* bit to trace makeif */
@@ -208,6 +208,7 @@ int user_label[MAX_USER_LABEL];
 #define DB_REPEAT    128
 #define DB_FIX		 256
 #define DB_WHILE     512
+#define DB_TYPE      1024
  int labelnumber = 0;  /* sequential counter for internal label numbers */
    /*  Note: you should add to the above values and insert debugging
        printouts in your routines similar to those that are shown here.     */
@@ -680,18 +681,10 @@ TOKEN dogoto(TOKEN tok, TOKEN labeltok) {
 	return makegoto(i);
 }
 
-
 /* instdotdot installs a .. subrange in the symbol table.
    dottok is a (now) unused token that is recycled. */
 TOKEN instdotdot(TOKEN lowtok, TOKEN dottok, TOKEN hightok) {
-	
-	SYMBOL sym;
-	sym = symalloc();
-	sym->lowbound = lowtok->intval;
-	sym->highbound = hightok->intval;
-	sym->kind = SUBRANGE;
-	dottok->symentry = sym;
-	return dottok;
+	return makesubrange(dottok, lowtok->intval, hightok->intval);
 }
 
 /* instarray installs an array declaration into the symbol table.
@@ -699,26 +692,102 @@ TOKEN instdotdot(TOKEN lowtok, TOKEN dottok, TOKEN hightok) {
    The symbol table pointer is returned in token typetok. */
 TOKEN instarray(TOKEN bounds, TOKEN typetok) {
 	SYMBOL sym;
+	SYMBOL sym1;
 	TOKEN tok;
 	TOKEN tok_type;
+	sym = symalloc();
 	if (bounds->link != 0) {
 		tok_type = instarray(bounds->link, typetok);
 	} else {
 		tok_type = typetok;
 	}
-	sym = bounds->symentry;
+	if (bounds->symentry == 0) {
+		findtype(bounds);
+	}
+	sym1 = bounds->symentry;
 	sym->kind = ARRAYSYM;
 	if (tok_type->symtype == 0) {
 		findtype(tok_type);
 	}
-	sym->datatype = tok_type->symtype;
-	sym->size = (sym->highbound - sym->lowbound + 1) * tok_type->symtype->size;
+	sym->datatype = sym1;
+	sym->size = (sym1->highbound - sym1->lowbound + 1) * tok_type->symtype->size;
+	sym->highbound = sym1->highbound;
+	sym->lowbound = sym1->lowbound;
     sym->datatype = tok_type->symtype;
 	sym->basicdt = tok_type->symtype->basicdt;
 	tok = copytok(tok_type);
 	tok->symtype = sym;
 	tok->symentry = sym;
 	return tok;
+}
+
+
+/* makesubrange makes a SUBRANGE symbol table entry, puts the pointer to it
+   into tok, and returns tok. */
+TOKEN makesubrange(TOKEN tok, int low, int high) {
+	SYMBOL sym;
+	sym = symalloc();
+	sym->lowbound = low;
+	sym->highbound = high;
+	sym->kind = SUBRANGE;
+	sym->blocklevel = blocknumber;
+	sym->size = 4;
+	tok->symentry = sym;
+	tok->symtype = sym;
+	return tok;
+}
+
+/* instenum installs an enumerated subrange in the symbol table,
+   e.g., type color = (red, white, blue)
+   by calling makesubrange and returning the token it returns. */
+TOKEN instenum(TOKEN idlist) {
+	SYMBOL sym;
+	int count = 0;
+	TOKEN tok = idlist;
+	while (tok != 0) {
+		sym = symalloc();
+		sym->kind = BASICTYPE;
+		sym->constval.intnum = count;
+		strcpy(sym->namestring, tok->stringval);
+		sym->blocklevel = blocknumber;
+		//sym->datatype = sym_int;
+		sym->basicdt = INTEGER;
+		sym->size = 4;
+		tok = tok->link;
+		count++;
+	}
+	return makesubrange(talloc(), 0, count-1);
+}
+ 
+/* insttype will install a type name in symbol table.
+   typetok is a token containing symbol table pointers. */
+void  insttype(TOKEN typename, TOKEN typetok){
+	SYMBOL sym;
+	TOKEN tok;
+	TOKEN tok_type;
+	sym = insertsym(typename->stringval);
+	tok_type = typetok;
+/*
+	if (tok_type->symentry == 0) {
+		findtype(tok_type);
+	}
+	*/
+	sym->kind = tok_type->symtype->kind;
+	sym->datatype = tok_type->symtype;
+	sym->size = tok_type->symtype->size;
+	sym->basicdt = tok_type->symtype->basicdt;
+	if (sym->kind == SUBRANGE) {
+		sym->highbound = tok_type->symtype->highbound;
+		sym->lowbound = tok_type->symtype->lowbound;
+	}
+	typename->symtype = sym;
+	typename->symentry = sym;	
+	if (DEBUG & DB_TYPE) {
+		printf("initializing type\n");			
+		dbugprinttok(typename);
+		dbugprinttok(typetok);
+		printf("symbol type name is %s\n", sym->namestring);
+	}
 }
 
 
