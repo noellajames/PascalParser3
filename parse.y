@@ -128,7 +128,13 @@ int user_label[MAX_USER_LABEL];
 		           ;
   type       : simple_type
              | ARRAY LBRACKET simple_type_list RBRACKET OF type		{ $$ = instarray($3, $6); }
+             | RECORD field_list END           { $$ = instrec($1, $2); }
              ;
+  fields     : id_list COLON type              { $$ = instfields($1, $3); }
+             ;
+  field_list : fields SEMICOLON field_list     { $$ = nconc($1, $3); }
+  	  	     | fields
+		     ;
   vdef       : id_list COLON type             { instvars($1, $3); }
              ;
   vdef_list  : vdef SEMICOLON vdef_list            { /* do nothing */ }
@@ -742,17 +748,18 @@ TOKEN makesubrange(TOKEN tok, int low, int high) {
    by calling makesubrange and returning the token it returns. */
 TOKEN instenum(TOKEN idlist) {
 	SYMBOL sym;
+	SYMBOL typesym;
 	int count = 0;
 	TOKEN tok = idlist;
+	typesym = searchst("integer");
 	while (tok != 0) {
-		sym = symalloc();
-		sym->kind = BASICTYPE;
-		sym->constval.intnum = count;
-		strcpy(sym->namestring, tok->stringval);
+		sym = insertsym(tok->stringval);
+		sym->kind = CONSTSYM;
+		sym->datatype = typesym;
+		sym->basicdt = typesym->basicdt;
 		sym->blocklevel = blocknumber;
-		//sym->datatype = sym_int;
-		sym->basicdt = INTEGER;
-		sym->size = 4;
+		
+		sym->constval.intnum = count;
 		tok = tok->link;
 		count++;
 	}
@@ -772,14 +779,14 @@ void  insttype(TOKEN typename, TOKEN typetok){
 		findtype(tok_type);
 	}
 	*/
-	sym->kind = tok_type->symtype->kind;
+	sym->kind = TYPESYM;
 	sym->datatype = tok_type->symtype;
 	sym->size = tok_type->symtype->size;
 	sym->basicdt = tok_type->symtype->basicdt;
-	if (sym->kind == SUBRANGE) {
+	if (tok_type->symtype->kind == SUBRANGE) {
 		sym->highbound = tok_type->symtype->highbound;
 		sym->lowbound = tok_type->symtype->lowbound;
-	}
+	} 
 	typename->symtype = sym;
 	typename->symentry = sym;	
 	if (DEBUG & DB_TYPE) {
@@ -788,6 +795,80 @@ void  insttype(TOKEN typename, TOKEN typetok){
 		dbugprinttok(typetok);
 		printf("symbol type name is %s\n", sym->namestring);
 	}
+}
+
+/* nconc concatenates two token lists, destructively, by making the last link
+   of lista point to listb.
+   (nconc '(a b) '(c d e))  =  (a b c d e)  */
+/* nconc is useful for putting together two fieldlist groups to
+   make them into a single list in a record declaration. */
+TOKEN nconc(TOKEN lista, TOKEN listb) {
+	TOKEN tok;
+	tok = lista;
+	while (tok->link != 0) {
+		tok = tok->link;
+	}
+	tok->link = listb;
+	return lista;
+}
+
+/* instrec will install a record definition.  Each token in the linked list
+   argstok has a pointer its type.  rectok is just a trash token to be
+   used to return the result in its symtype */
+TOKEN instrec(TOKEN rectok, TOKEN argstok) {
+	SYMBOL sym;
+	int offset = 0;
+	int size = 0;
+	TOKEN tok = argstok;
+	sym = symalloc();
+	sym->kind = RECORDSYM;
+	sym->blocklevel = blocknumber;
+	while(tok != 0) {
+		tok->symtype->offset = offset;
+		size += tok->symtype->size;
+		offset += tok->symtype->size;
+		tok = tok->link;
+	}
+	sym->size = size;
+	sym->datatype = argstok->symtype;
+	rectok->symentry = sym;
+	rectok->symtype = sym;
+	return rectok;
+}
+
+/* instfields will install type in a list idlist of field name tokens:
+   re, im: real    put the pointer to REAL in the RE, IM tokens.
+   typetok is a token whose symtype is a symbol table pointer.
+   Note that nconc() can be used to combine these lists after instrec() */
+TOKEN instfields(TOKEN idlist, TOKEN typetok) {
+	int symbol_size = 0;
+	SYMBOL sym;
+	SYMBOL sym_prev = 0;
+	TOKEN tok = idlist;
+	if (typetok->symtype == 0) {
+		findtype(typetok); /* find type */
+	}
+	symbol_size = alignsize (typetok->symtype); /* find the size of type */
+	while (tok != 0) {
+		sym = symalloc();
+		strcpy(sym->namestring, tok->stringval);
+		/* Set up symbol as variable and initialize with block/symbol table info */	
+		sym->kind = ARGSYM;
+		sym->datatype = typetok->symtype;
+		sym->size = typetok->symtype->size;
+		sym->blocklevel = blocknumber;
+	    sym->datatype = typetok->symtype;
+		sym->basicdt = typetok->symtype->basicdt;
+		tok->symentry = sym;
+		tok->symtype = sym;
+		tok = tok->link;
+		
+		if (sym_prev != 0) {
+			sym_prev->link = sym;
+		} 
+		sym_prev = sym;
+	}
+	return idlist;
 }
 
 
