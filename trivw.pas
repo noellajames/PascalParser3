@@ -22,6 +22,9 @@
 program graph1(output);
 label 1492, 1776;
 var i,lim,k : integer;
+x: array[1..10] of integer;
+y: array[1..5] of real;
+z: array[1..5,1..10] of real;
 begin
    lim := 7;
 1492:

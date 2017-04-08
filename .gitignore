@@ -1,0 +1,11 @@
+*.o
+lexanc
+*.out
+lexer
+lex.yy.c
+y.tab.c
+y.tab.h
+.cproject
+.project
+.settings
+parser

@@ -83,7 +83,13 @@ int user_label[MAX_USER_LABEL];
              ;
   cdef       :  IDENTIFIER EQ constant              { instconst($1, $3); }
   	  	  	 ;
-  tblock     :  vblock
+  tdef       :  IDENTIFIER EQ type
+             ;
+  tdef_list  :  tdef SEMICOLON tdef_list            { /* do nothing */ }
+  	  	  	 |  tdef SEMICOLON                      { /* do nothing */ }
+		     ;
+  tblock     :  TYPE tdef_list vblock               { $$ = $3; }
+             |  vblock
   	  	     ;
   label      :  NUMBER COLON statement              { $$ = dolabel($1, $2, $3); }
              ;
@@ -114,8 +120,14 @@ int user_label[MAX_USER_LABEL];
              | IDENTIFIER
 			 ;
   simple_type : IDENTIFIER
+              | LPAREN id_list RPAREN          { $$ = $2; }
+              | constant DOTDOT constant       { $$ = instdotdot($1, $2, $3); }
               ;
+  simple_type_list : simple_type COMMA simple_type_list        { $$ = cons($1, $3); }
+		           | simple_type
+		           ;
   type       : simple_type
+             | ARRAY LBRACKET simple_type_list RBRACKET OF type		{ $$ = instarray($3, $6); }
              ;
   vdef       : id_list COLON type             { instvars($1, $3); }
              ;
@@ -417,7 +429,9 @@ void  instvars(TOKEN idlist, TOKEN typetok) {
 		dbugprinttok(typetok);
 		dbugprinttok(idlist);
 	}
-	findtype(typetok); /* find type */
+	if (typetok->symtype == 0) {
+		findtype(typetok); /* find type */
+	}
 	
 	symbol_size = alignsize (typetok->symtype); /* find the size of type */
 	while (tok != 0) {
@@ -425,12 +439,12 @@ void  instvars(TOKEN idlist, TOKEN typetok) {
 		/* Set up symbol as variable and initialize with block/symbol table info */	
 		sym->kind = VARSYM;
 		sym->datatype = typetok->symtype;
-		sym->size = symbol_size;
+		sym->size = typetok->symtype->size;
 		sym->offset = wordaddress(blockoffs[blocknumber], symbol_size);
 		sym->blocklevel = blocknumber;
 	    sym->datatype = typetok->symtype;
 		sym->basicdt = typetok->symtype->basicdt;
-		blockoffs[blocknumber] = symbol_size + sym->offset;
+		blockoffs[blocknumber] = sym->size + sym->offset;
 		tok = tok->link;
 	}
 	
@@ -664,6 +678,47 @@ TOKEN dogoto(TOKEN tok, TOKEN labeltok) {
 		return tok;
 	} 
 	return makegoto(i);
+}
+
+
+/* instdotdot installs a .. subrange in the symbol table.
+   dottok is a (now) unused token that is recycled. */
+TOKEN instdotdot(TOKEN lowtok, TOKEN dottok, TOKEN hightok) {
+	
+	SYMBOL sym;
+	sym = symalloc();
+	sym->lowbound = lowtok->intval;
+	sym->highbound = hightok->intval;
+	sym->kind = SUBRANGE;
+	dottok->symentry = sym;
+	return dottok;
+}
+
+/* instarray installs an array declaration into the symbol table.
+   bounds points to a SUBRANGE symbol table entry.
+   The symbol table pointer is returned in token typetok. */
+TOKEN instarray(TOKEN bounds, TOKEN typetok) {
+	SYMBOL sym;
+	TOKEN tok;
+	TOKEN tok_type;
+	if (bounds->link != 0) {
+		tok_type = instarray(bounds->link, typetok);
+	} else {
+		tok_type = typetok;
+	}
+	sym = bounds->symentry;
+	sym->kind = ARRAYSYM;
+	if (tok_type->symtype == 0) {
+		findtype(tok_type);
+	}
+	sym->datatype = tok_type->symtype;
+	sym->size = (sym->highbound - sym->lowbound + 1) * tok_type->symtype->size;
+    sym->datatype = tok_type->symtype;
+	sym->basicdt = tok_type->symtype->basicdt;
+	tok = copytok(tok_type);
+	tok->symtype = sym;
+	tok->symentry = sym;
+	return tok;
 }
 
 
