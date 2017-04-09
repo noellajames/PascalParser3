@@ -129,6 +129,7 @@ int user_label[MAX_USER_LABEL];
   type       : simple_type
              | ARRAY LBRACKET simple_type_list RBRACKET OF type		{ $$ = instarray($3, $6); }
              | RECORD field_list END           { $$ = instrec($1, $2); }
+             | POINT IDENTIFIER                { $$ = instpoint($1, $2); }
              ;
   fields     : id_list COLON type              { $$ = instfields($1, $3); }
              ;
@@ -439,7 +440,7 @@ void  instvars(TOKEN idlist, TOKEN typetok) {
 	if (typetok->symtype == 0) {
 		findtype(typetok); /* find type */
 	}
-	
+
 	symbol_size = alignsize (typetok->symtype); /* find the size of type */
 	while (tok != 0) {
 		sym = insertsym(tok->stringval);
@@ -449,8 +450,11 @@ void  instvars(TOKEN idlist, TOKEN typetok) {
 		sym->size = typetok->symtype->size;
 		sym->offset = wordaddress(blockoffs[blocknumber], symbol_size);
 		sym->blocklevel = blocknumber;
-	    sym->datatype = typetok->symtype;
-		sym->basicdt = typetok->symtype->basicdt;
+		if (typetok->symtype->kind == TYPESYM && typetok->symtype->datatype->kind == POINTERSYM) {
+			sym->basicdt = POINTER;
+		} else {
+			sym->basicdt = typetok->symtype->basicdt;
+		}
 		blockoffs[blocknumber] = sym->size + sym->offset;
 		tok = tok->link;
 	}
@@ -501,9 +505,9 @@ TOKEN findid(TOKEN tok) {
 		tok->symtype = typ;
 		if (sym->kind == FUNCTIONSYM) {
 			tok->datatype = sym->datatype->basicdt;
-		} else if (typ->kind == BASICTYPE || typ->kind == POINTERSYM) {
+		} else if (typ->kind == BASICTYPE) {
 			tok->datatype = typ->basicdt;
-		}
+		} 
 	}
 
 	return tok;
@@ -772,7 +776,10 @@ void  insttype(TOKEN typename, TOKEN typetok){
 	SYMBOL sym;
 	TOKEN tok;
 	TOKEN tok_type;
-	sym = insertsym(typename->stringval);
+	sym = searchst(typename->stringval);
+	if (sym == 0) {
+		sym = insertsym(typename->stringval);
+	}
 	tok_type = typetok;
 /*
 	if (tok_type->symentry == 0) {
@@ -780,6 +787,9 @@ void  insttype(TOKEN typename, TOKEN typetok){
 	}
 	*/
 	sym->kind = TYPESYM;
+	if (tok_type->symtype == 0) {
+		return; /* to handle forward declaration */
+	}
 	sym->datatype = tok_type->symtype;
 	sym->size = tok_type->symtype->size;
 	sym->basicdt = tok_type->symtype->basicdt;
@@ -804,11 +814,17 @@ void  insttype(TOKEN typename, TOKEN typetok){
    make them into a single list in a record declaration. */
 TOKEN nconc(TOKEN lista, TOKEN listb) {
 	TOKEN tok;
+	SYMBOL sym;
 	tok = lista;
 	while (tok->link != 0) {
 		tok = tok->link;
 	}
 	tok->link = listb;
+	sym = tok->symtype;
+	while (sym->link != 0) {
+		sym = sym->link;
+	}
+	sym->link = listb->symtype;
 	return lista;
 }
 
@@ -824,10 +840,13 @@ TOKEN instrec(TOKEN rectok, TOKEN argstok) {
 	sym->kind = RECORDSYM;
 	sym->blocklevel = blocknumber;
 	while(tok != 0) {
+		offset = wordaddress(offset, tok->symtype->size);
 		tok->symtype->offset = offset;
-		size += tok->symtype->size;
-		offset += tok->symtype->size;
+		size = offset + tok->symtype->size;
+		offset = size;
+		//offset += tok->symtype->size;
 		tok = tok->link;
+		printf("Offset is %d and size is %d\n", offset, size);
 	}
 	sym->size = size;
 	sym->datatype = argstok->symtype;
@@ -871,6 +890,24 @@ TOKEN instfields(TOKEN idlist, TOKEN typetok) {
 	return idlist;
 }
 
+
+/* instpoint will install a pointer type in symbol table */
+TOKEN instpoint(TOKEN tok, TOKEN typename) {
+	SYMBOL sym;
+	SYMBOL sym_pointer;
+	sym = searchst(typename->stringval);
+	if (sym == 0) {
+		sym = insertsym(typename->stringval);
+	}
+	sym_pointer = symalloc();
+	sym_pointer->kind = POINTERSYM;
+	sym_pointer->size = 8;
+	sym_pointer->blocklevel = blocknumber;
+	sym_pointer->datatype = sym;
+	typename->symentry = sym_pointer;
+	typename->symtype = sym_pointer;
+	return typename;
+}
 
 int wordaddress(int n, int wordsize)
   { return ((n + wordsize - 1) / wordsize) * wordsize; }
