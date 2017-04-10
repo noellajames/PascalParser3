@@ -43,7 +43,6 @@
 TOKEN parseresult;
         /* maximum amount of user labels */
 #define MAX_USER_LABEL	100
-
 int user_label[MAX_USER_LABEL];
 %}
 
@@ -114,7 +113,8 @@ int user_label[MAX_USER_LABEL];
   endif      :  ELSE statement                 { $$ = $2; }
              |  /* empty */                    { $$ = NULL; }
              ;
-  assignment :  IDENTIFIER ASSIGN expr         { $$ = binop($2, findid($1), $3); }
+
+  assignment :  variable ASSIGN expr         { $$ = binop($2, $1, $3);}
              ;
   id_list    : IDENTIFIER COMMA id_list        { $$ = cons($1, $3); }
              | IDENTIFIER
@@ -166,6 +166,8 @@ int user_label[MAX_USER_LABEL];
              |  unsigned_constant
 			 |  funcall
              ;
+
+			 
   plus_op    :  PLUS
   	  	     |  MINUS
 			 |  OR
@@ -184,11 +186,16 @@ int user_label[MAX_USER_LABEL];
 			 |  GE 
 			 |  IN
 			 ;
-  unsigned_constant : IDENTIFIER 	{ $$ = findid($1); }
+  unsigned_constant : variable 	
                     | NUMBER 
 					| NIL 
 					| STRING
 					;
+  variable   : IDENTIFIER                      { $$ = findid($1); }
+             | variable LBRACKET expr_list RBRACKET
+             | variable DOT IDENTIFIER         { $$ = reducedot($1, $2, $3); }
+             | variable POINT
+             ;
   sign       :  PLUS 
   	  	  	 |  MINUS
 			 ;
@@ -228,7 +235,6 @@ TOKEN cons(TOKEN item, TOKEN list)           /* add item to front of list */
        };
     return item;
   }
-
 int is_arithmetic_operator(TOKEN po) {
 	int op = po->whichval;
 	if ((op == PLUSOP) || (op == MINUSOP) || (op == TIMESOP) || (op == DIVIDEOP) || (op == DIVOP) || (op == MODOP)) {
@@ -236,7 +242,6 @@ int is_arithmetic_operator(TOKEN po) {
 	}
 	return 0;
 }
-
 int basic_data_type(TOKEN tok) {
 	if (tok->tokentype == NUMBERTOK || tok->tokentype == IDENTIFIERTOK) {
 		return tok->datatype;
@@ -253,12 +258,9 @@ int basic_data_type(TOKEN tok) {
 	}  else if (tok->tokentype == STRINGTOK) {
 		return STRINGTYPE;
 	}
-	printf("ONE - Not an argument to a binary operator");
 	dbugprinttok(tok);
-	printf("TWO - Not an argument to a binary operator");
 	return -1;
 }
-
 TOKEN binop(TOKEN op, TOKEN lhs, TOKEN rhs)        /* reduce binary operator */
   { 
 	int lhs_data_type = basic_data_type(lhs);
@@ -382,9 +384,11 @@ TOKEN makefor(int sign, TOKEN tok, TOKEN asg, TOKEN tokb, TOKEN endexpr,
 	TOKEN label_tok = makelabel();
 	TOKEN goto_tok = makegoto(cur_labelnumber); 
 	/* copy assignment operator for use in multiple situations */
+	
 	TOKEN assign_var = copytok(asg->operands);
 	TOKEN assign_var1 = copytok(asg->operands);
 	TOKEN assign_var2 = copytok(asg->operands);
+	
 	TOKEN end_check_tok = 0;
 	TOKEN tok_increment = 0;
 	TOKEN tok_var_incr = 0;
@@ -440,7 +444,6 @@ void  instvars(TOKEN idlist, TOKEN typetok) {
 	if (typetok->symtype == 0) {
 		findtype(typetok); /* find type */
 	}
-
 	symbol_size = alignsize (typetok->symtype); /* find the size of type */
 	while (tok != 0) {
 		sym = insertsym(tok->stringval);
@@ -509,7 +512,6 @@ TOKEN findid(TOKEN tok) {
 			tok->datatype = typ->basicdt;
 		} 
 	}
-
 	return tok;
 	
 }
@@ -561,7 +563,6 @@ TOKEN makerepeat(TOKEN tok, TOKEN statements, TOKEN tokb, TOKEN expr) {
 	cons(label_tok, tok);
 	return makeprogn(talloc(), label_tok);
 }
-
 /* makefloat forces the item tok to be floating, by floating a constant
    or by inserting a FLOATOP operator */
 TOKEN makefloat(TOKEN tok) {
@@ -583,7 +584,6 @@ TOKEN makefloat(TOKEN tok) {
 	}
 	return t1;
 }
-
 /* makefix forces the item tok to be integer, by truncating a constant
    or by inserting a FIXOP operator */
 TOKEN makefix(TOKEN tok) {
@@ -605,8 +605,6 @@ TOKEN makefix(TOKEN tok) {
 	}
 	return t1;
 }
-
-
 /* makewhile makes structures for a while statement.
    tok and tokb are (now) unused tokens that are recycled. */
 TOKEN makewhile(TOKEN tok, TOKEN expr, TOKEN tokb, TOKEN statement) {
@@ -631,19 +629,16 @@ TOKEN makewhile(TOKEN tok, TOKEN expr, TOKEN tokb, TOKEN statement) {
 	cons(label_tok, tokb);
 	return makeprogn(talloc(), label_tok);
 }
-
 /* instlabel installs a user label into the label table */
 void  instlabel (TOKEN num) {
 	user_label[labelnumber++] = num->intval;
 }
-
 void inituserlabel() {
 	int i;
 	for (i = 0; i < MAX_USER_LABEL; i++) {
 		user_label[i] = -1;
 	}
 }
-
 /* 
  (progn (label 0)
        (:= (aref (^ fred)
@@ -672,7 +667,6 @@ TOKEN dolabel(TOKEN labeltok, TOKEN tok, TOKEN statement) {
 	tok->operands->link = statement;
 	return tok;
 }
-
 /* dogoto is the action for a goto statement.
    tok is a (now) unused token that is recycled. */
 TOKEN dogoto(TOKEN tok, TOKEN labeltok) {
@@ -690,13 +684,11 @@ TOKEN dogoto(TOKEN tok, TOKEN labeltok) {
 	} 
 	return makegoto(i);
 }
-
 /* instdotdot installs a .. subrange in the symbol table.
    dottok is a (now) unused token that is recycled. */
 TOKEN instdotdot(TOKEN lowtok, TOKEN dottok, TOKEN hightok) {
 	return makesubrange(dottok, lowtok->intval, hightok->intval);
 }
-
 /* instarray installs an array declaration into the symbol table.
    bounds points to a SUBRANGE symbol table entry.
    The symbol table pointer is returned in token typetok. */
@@ -730,8 +722,6 @@ TOKEN instarray(TOKEN bounds, TOKEN typetok) {
 	tok->symentry = sym;
 	return tok;
 }
-
-
 /* makesubrange makes a SUBRANGE symbol table entry, puts the pointer to it
    into tok, and returns tok. */
 TOKEN makesubrange(TOKEN tok, int low, int high) {
@@ -746,7 +736,6 @@ TOKEN makesubrange(TOKEN tok, int low, int high) {
 	tok->symtype = sym;
 	return tok;
 }
-
 /* instenum installs an enumerated subrange in the symbol table,
    e.g., type color = (red, white, blue)
    by calling makesubrange and returning the token it returns. */
@@ -806,7 +795,6 @@ void  insttype(TOKEN typename, TOKEN typetok){
 		printf("symbol type name is %s\n", sym->namestring);
 	}
 }
-
 /* nconc concatenates two token lists, destructively, by making the last link
    of lista point to listb.
    (nconc '(a b) '(c d e))  =  (a b c d e)  */
@@ -827,7 +815,6 @@ TOKEN nconc(TOKEN lista, TOKEN listb) {
 	sym->link = listb->symtype;
 	return lista;
 }
-
 /* instrec will install a record definition.  Each token in the linked list
    argstok has a pointer its type.  rectok is just a trash token to be
    used to return the result in its symtype */
@@ -846,7 +833,6 @@ TOKEN instrec(TOKEN rectok, TOKEN argstok) {
 		offset = size;
 		//offset += tok->symtype->size;
 		tok = tok->link;
-		printf("Offset is %d and size is %d\n", offset, size);
 	}
 	sym->size = size;
 	sym->datatype = argstok->symtype;
@@ -854,7 +840,6 @@ TOKEN instrec(TOKEN rectok, TOKEN argstok) {
 	rectok->symtype = sym;
 	return rectok;
 }
-
 /* instfields will install type in a list idlist of field name tokens:
    re, im: real    put the pointer to REAL in the RE, IM tokens.
    typetok is a token whose symtype is a symbol table pointer.
@@ -889,8 +874,6 @@ TOKEN instfields(TOKEN idlist, TOKEN typetok) {
 	}
 	return idlist;
 }
-
-
 /* instpoint will install a pointer type in symbol table */
 TOKEN instpoint(TOKEN tok, TOKEN typename) {
 	SYMBOL sym;
@@ -907,6 +890,40 @@ TOKEN instpoint(TOKEN tok, TOKEN typename) {
 	typename->symentry = sym_pointer;
 	typename->symtype = sym_pointer;
 	return typename;
+}
+
+
+/* reducedot handles a record reference.
+   dot is a (now) unused token that is recycled. */
+TOKEN reducedot(TOKEN var, TOKEN dot, TOKEN field) {
+	SYMBOL sym;
+	var = findid(var);
+	sym = var->symentry; /* record sym */
+	sym = sym->datatype; /* accessing first element of the record */
+	while(sym != 0){
+		if (strcmp(field->stringval, sym->namestring) == 0) {
+			field->symtype = sym;
+			field->symentry = sym;
+			break;
+		}
+		sym = sym->datatype; /* accessing next elements of the record */
+
+	}
+	return makearef(var, field, 0);
+}
+
+
+/* makearef makes an array reference operation.
+   off is be an integer constant token
+   tok (if not NULL) is a (now) unused token that is recycled. */
+TOKEN makearef(TOKEN var, TOKEN off, TOKEN tok) {
+	fprintf(stderr,"D\n");
+	TOKEN tok1;
+	tok1 = makeop(AREFOP);
+	tok1->operands = var;
+	tok1->operands->link = off;
+	fprintf(stderr,"E\n");
+	return tok1;
 }
 
 int wordaddress(int n, int wordsize)
