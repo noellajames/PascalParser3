@@ -192,7 +192,7 @@ int user_label[MAX_USER_LABEL];
 					| STRING
 					;
   variable   : IDENTIFIER                      { $$ = findid($1); }
-             | variable LBRACKET expr_list RBRACKET
+             | variable LBRACKET expr_list RBRACKET { $$ = arrayref($1, $2, $3, $4);   }
              | variable DOT IDENTIFIER         { $$ = reducedot($1, $2, $3); }
              | variable POINT
              ;
@@ -909,6 +909,7 @@ TOKEN instpoint(TOKEN tok, TOKEN typename) {
    dot is a (now) unused token that is recycled. */
 TOKEN reducedot(TOKEN var, TOKEN dot, TOKEN field) {
 	SYMBOL sym;
+	TOKEN tok2;
 	var = findid(var);
 	sym = var->symentry; /* record sym */
 	sym = sym->datatype; /* accessing first element of the record */
@@ -923,7 +924,8 @@ TOKEN reducedot(TOKEN var, TOKEN dot, TOKEN field) {
 	}
 	var->symentry = sym;
 	var->symtype = sym;
-	return makearef(var, field, 0);
+	tok2 = makeintc(field->symtype->offset);
+	return makearef(var, tok2, 0);
 }
 
 
@@ -932,11 +934,67 @@ TOKEN reducedot(TOKEN var, TOKEN dot, TOKEN field) {
    tok (if not NULL) is a (now) unused token that is recycled. */
 TOKEN makearef(TOKEN var, TOKEN off, TOKEN tok) {
 	TOKEN tok1;
-	TOKEN tok2 = makeintc(off->symtype->offset);
 	tok1 = makeop(AREFOP);
 	tok1->operands = var;
-	tok1->operands->link = tok2;
+	tok1->operands->link = off;
 	return tok1;
+}
+
+
+/* arrayref processes an array reference a[i]
+   subs is a list of subscript expressions.
+   tok and tokb are (now) unused tokens that are recycled. */
+TOKEN arrayref(TOKEN arr, TOKEN tok, TOKEN subs, TOKEN tokb){
+	SYMBOL sym;
+	TOKEN field;
+	int sym_size;
+	arr = findid(arr);
+	sym = arr->symentry; /* record sym */
+	sym = sym->datatype; /* accessing first element of the record */
+	while(sym->datatype != 0){
+		sym = sym->datatype; /* accessing next elements of the record */
+	}
+	arr->symentry = sym;
+	arr->symtype = sym;
+	sym_size = alignsize(sym);
+	sym = arr->symentry;
+	sym = sym->datatype;	
+	if (subs->tokentype == NUMBERTOK){
+		field = makeintc(sym_size*subs->intval);
+	}
+	return makearef(arr, field, 0);
+}
+
+
+/* makeplus makes a + operator.
+   tok (if not NULL) is a (now) unused token that is recycled. */
+TOKEN makeplus(TOKEN lhs, TOKEN rhs, TOKEN tok) {
+	tok = makeop(PLUSOP);
+	return binop(tok, lhs, rhs);
+}
+
+/* addint adds integer off to expression exp, possibly using tok */
+TOKEN addint(TOKEN exp, TOKEN off, TOKEN tok) {
+	TOKEN tok1;
+	tok1 = makeop(PLUSOP);
+	return binop(tok1, exp, off);
+}
+
+/* addoffs adds offset, off, to an aref expression, exp */
+TOKEN addoffs(TOKEN exp, TOKEN off) {
+	TOKEN tok1;
+	tok1 = makeop(PLUSOP);
+	return binop(tok1, exp, off);
+}
+
+/* mulint multiplies expression exp by integer n */
+TOKEN mulint(TOKEN exp, int n) {
+	TOKEN tok1;
+	TOKEN tok2;
+	tok1 = makeop(TIMESOP);
+	tok2 = makeintc(n);
+	return binop(tok1, exp, tok2);
+	
 }
 
 int wordaddress(int n, int wordsize)
