@@ -252,6 +252,8 @@ int basic_data_type(TOKEN tok) {
 			return REAL;
 		} else if (tok->whichval == FUNCALLOP) {
 			return tok->operands->datatype;
+		} else if (tok->whichval == AREFOP) {
+			return tok->operands->symtype->basicdt;
 		} else {
 			return basic_data_type(tok->operands);
 		}
@@ -574,10 +576,15 @@ TOKEN makefloat(TOKEN tok) {
 	} else if ((tok->tokentype == IDENTIFIERTOK) && (tok->symentry->kind == VARSYM) && (tok->symentry->basicdt == INTEGER)) {
 		t1 = makeop(FLOATOP);
 		t1->operands = tok;
-	} else if ((tok->tokentype == IDENTIFIERTOK) && (tok->symentry->kind == FUNCTIONSYM) && (tok->symentry->datatype != 0) &&
+	} else if ((tok->tokentype == IDENTIFIERTOK) && ((tok->symentry->kind == FUNCTIONSYM) || (tok->symentry->kind == RECORDSYM)) && (tok->symentry->datatype != 0) &&
 			(tok->symentry->basicdt == INTEGER)) {
 		t1 = makeop(FLOATOP);
 		t1->operands = tok;
+	} else if ((tok->tokentype == OPERATOR) && (basic_data_type(tok) == REAL)) { 
+		t1 = makeop(FLOATOP);
+		t1->operands = tok;
+	} else if ((tok->tokentype == OPERATOR) && (basic_data_type(tok) == INTEGER)) {
+		t1 = tok;
 	} else {
 		t1 = makeop(FLOATOP);
 		t1->operands = tok;
@@ -595,8 +602,13 @@ TOKEN makefix(TOKEN tok) {
 	} else if ((tok->tokentype == IDENTIFIERTOK) && (tok->symentry->kind == VARSYM) && (tok->symentry->basicdt == REAL)) {
 		t1 = makeop(FIXOP);
 		t1->operands = tok;
-	} else if ((tok->tokentype == IDENTIFIERTOK) && (tok->symentry->kind == FUNCTIONSYM) && (tok->symentry->datatype != 0) &&
+	} else if ((tok->tokentype == IDENTIFIERTOK) && ((tok->symentry->kind == FUNCTIONSYM) || (tok->symentry->kind == RECORDSYM)) && (tok->symentry->datatype != 0) &&
 			(tok->symentry->basicdt == REAL)) {
+		t1 = makeop(FIXOP);
+		t1->operands = tok;
+	} else if ((tok->tokentype == OPERATOR) && (basic_data_type(tok) == REAL)) { 
+		t1 = tok;
+	} else if ((tok->tokentype == OPERATOR) && (basic_data_type(tok) == INTEGER)) {
 		t1 = makeop(FIXOP);
 		t1->operands = tok;
 	} else {
@@ -868,7 +880,7 @@ TOKEN instfields(TOKEN idlist, TOKEN typetok) {
 		tok = tok->link;
 		
 		if (sym_prev != 0) {
-			sym_prev->link = sym;
+			sym_prev->datatype = sym;
 		} 
 		sym_prev = sym;
 	}
@@ -909,6 +921,8 @@ TOKEN reducedot(TOKEN var, TOKEN dot, TOKEN field) {
 		sym = sym->datatype; /* accessing next elements of the record */
 
 	}
+	var->symentry = sym;
+	var->symtype = sym;
 	return makearef(var, field, 0);
 }
 
@@ -917,12 +931,11 @@ TOKEN reducedot(TOKEN var, TOKEN dot, TOKEN field) {
    off is be an integer constant token
    tok (if not NULL) is a (now) unused token that is recycled. */
 TOKEN makearef(TOKEN var, TOKEN off, TOKEN tok) {
-	fprintf(stderr,"D\n");
 	TOKEN tok1;
+	TOKEN tok2 = makeintc(off->symtype->offset);
 	tok1 = makeop(AREFOP);
 	tok1->operands = var;
-	tok1->operands->link = off;
-	fprintf(stderr,"E\n");
+	tok1->operands->link = tok2;
 	return tok1;
 }
 
