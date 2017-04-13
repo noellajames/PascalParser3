@@ -33,6 +33,7 @@
            the IF statement, but Yacc's default resolves it in the right way.*/
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <ctype.h>
 #include "token.h"
 #include "lexan.h"
