@@ -194,7 +194,7 @@ int user_label[MAX_USER_LABEL];
   variable   : IDENTIFIER                      { $$ = findid($1); }
              | variable LBRACKET expr_list RBRACKET { $$ = arrayref($1, $2, $3, $4);   }
              | variable DOT IDENTIFIER         { $$ = reducedot($1, $2, $3); }
-             | variable POINT
+             | variable POINT                  { $$ = dopoint($1, $2); }
              ;
   sign       :  PLUS 
   	  	  	 |  MINUS
@@ -223,9 +223,35 @@ int user_label[MAX_USER_LABEL];
 #define DB_FIX		 256
 #define DB_WHILE     512
 #define DB_TYPE      1024
- int labelnumber = 0;  /* sequential counter for internal label numbers */
-   /*  Note: you should add to the above values and insert debugging
-       printouts in your routines similar to those that are shown here.     */
+
+int labelnumber = 0;  /* sequential counter for internal label numbers */
+
+typedef struct symalloc_syms {
+	SYMBOL symbol;
+	struct symalloc_syms * next;
+} SYMALLOC_SYMS, *P_SYMALLOC;
+
+P_SYMALLOC head = 0;
+
+void symalloc_insert(SYMBOL sym) {
+	P_SYMALLOC ss = (P_SYMALLOC) calloc(1,sizeof(SYMALLOC_SYMS));
+	ss->symbol = sym;
+	ss->next = head;
+	head = ss;
+}
+
+SYMBOL symalloc_find(char * s) {
+	P_SYMALLOC ss = head;
+	while (ss != 0) {
+		if (strcmp(ss->symbol->namestring,s) == 0){
+			return ss->symbol;
+		}
+		ss = ss->next;
+	}
+	return 0;
+}
+
+
 TOKEN cons(TOKEN item, TOKEN list)           /* add item to front of list */
   { item->link = list;
     if (DEBUG & DB_CONS)
@@ -327,8 +353,21 @@ TOKEN makeif(TOKEN tok, TOKEN exp, TOKEN thenpart, TOKEN elsepart)
 /* makefuncall makes a FUNCALL operator and links it to the fn and args.
    tok is a (now) unused token that is recycled. */
 TOKEN makefuncall(TOKEN tok, TOKEN fn, TOKEN args) {
+	TOKEN nTok;
+	SYMBOL sym;
 	TOKEN t1 = makeop(FUNCALLOP);
 	findid(fn); /* locate the function in the symbol table */
+	if (strcmp(fn->stringval, "new") == 0) {
+			printf("*****************lets handle new\n");
+			printf("the argument is %s\n", args->stringval);
+			nTok = findid(args);
+			sym = nTok->symtype; // This is the type symol
+			printf("symbol is %s\n", sym->namestring);
+			sym = sym->datatype; // This is the pointer symbol
+			printf("symbol is %s\n", sym->namestring);
+			sym = sym->datatype; // This is the actual record symbol
+			printf("symbol is %s with size %d \n", sym->namestring, sym->size);
+	}
 	return binop(t1, fn, args);
 }
 TOKEN makeprogn(TOKEN tok, TOKEN statements)
@@ -580,10 +619,10 @@ TOKEN makefloat(TOKEN tok) {
 			(tok->symentry->basicdt == INTEGER)) {
 		t1 = makeop(FLOATOP);
 		t1->operands = tok;
-	} else if ((tok->tokentype == OPERATOR) && (basic_data_type(tok) == REAL)) { 
+	} else if ((tok->tokentype == OPERATOR) && (basic_data_type(tok) == INTEGER)) { 
 		t1 = makeop(FLOATOP);
 		t1->operands = tok;
-	} else if ((tok->tokentype == OPERATOR) && (basic_data_type(tok) == INTEGER)) {
+	} else if ((tok->tokentype == OPERATOR) && (basic_data_type(tok) == REAL)) {
 		t1 = tok;
 	} else {
 		t1 = makeop(FLOATOP);
@@ -606,9 +645,9 @@ TOKEN makefix(TOKEN tok) {
 			(tok->symentry->basicdt == REAL)) {
 		t1 = makeop(FIXOP);
 		t1->operands = tok;
-	} else if ((tok->tokentype == OPERATOR) && (basic_data_type(tok) == REAL)) { 
+	} else if ((tok->tokentype == OPERATOR) && (basic_data_type(tok) == INTEGER)) { 
 		t1 = tok;
-	} else if ((tok->tokentype == OPERATOR) && (basic_data_type(tok) == INTEGER)) {
+	} else if ((tok->tokentype == OPERATOR) && (basic_data_type(tok) == REAL)) {
 		t1 = makeop(FIXOP);
 		t1->operands = tok;
 	} else {
@@ -630,12 +669,6 @@ TOKEN makewhile(TOKEN tok, TOKEN expr, TOKEN tokb, TOKEN statement) {
 		dbugprinttok(expr);
 	}
 	makeprogn(tok, statement);
-	/* tokb has the if condition */
-	//tok1 = cons(tok, goto_tok);
-	//if (DEBUG & DB_WHILE) {
-		//printf("Trying to debug tok1\n");
-		//dbugprinttok(tok1);
-	//}
 	tok->operands->link = goto_tok;
 	makeif(tokb, expr, tok, 0);
 	cons(label_tok, tokb);
@@ -651,12 +684,7 @@ void inituserlabel() {
 		user_label[i] = -1;
 	}
 }
-/* 
- (progn (label 0)
-       (:= (aref (^ fred)
-            0)
-         20))
- */
+
 /* dolabel is the action for a label of the form   <number>: <statement>
    tok is a (now) unused token that is recycled. */
 TOKEN dolabel(TOKEN labeltok, TOKEN tok, TOKEN statement) {
@@ -777,20 +805,9 @@ void  insttype(TOKEN typename, TOKEN typetok){
 	SYMBOL sym;
 	TOKEN tok;
 	TOKEN tok_type;
-	sym = searchst(typename->stringval);
-	if (sym == 0) {
-		sym = insertsym(typename->stringval);
-	}
+	sym = searchins(typename->stringval);
 	tok_type = typetok;
-/*
-	if (tok_type->symentry == 0) {
-		findtype(tok_type);
-	}
-	*/
 	sym->kind = TYPESYM;
-	if (tok_type->symtype == 0) {
-		return; /* to handle forward declaration */
-	}
 	sym->datatype = tok_type->symtype;
 	sym->size = tok_type->symtype->size;
 	sym->basicdt = tok_type->symtype->basicdt;
@@ -879,8 +896,9 @@ TOKEN instfields(TOKEN idlist, TOKEN typetok) {
 		tok->symtype = sym;
 		tok = tok->link;
 		
+		symalloc_insert(sym);
 		if (sym_prev != 0) {
-			sym_prev->datatype = sym;
+			sym_prev->link = sym;
 		} 
 		sym_prev = sym;
 	}
@@ -890,10 +908,7 @@ TOKEN instfields(TOKEN idlist, TOKEN typetok) {
 TOKEN instpoint(TOKEN tok, TOKEN typename) {
 	SYMBOL sym;
 	SYMBOL sym_pointer;
-	sym = searchst(typename->stringval);
-	if (sym == 0) {
-		sym = insertsym(typename->stringval);
-	}
+	sym = searchins(typename->stringval);
 	sym_pointer = symalloc();
 	sym_pointer->kind = POINTERSYM;
 	sym_pointer->size = 8;
@@ -910,22 +925,20 @@ TOKEN instpoint(TOKEN tok, TOKEN typename) {
 TOKEN reducedot(TOKEN var, TOKEN dot, TOKEN field) {
 	SYMBOL sym;
 	TOKEN tok2;
-	var = findid(var);
-	sym = var->symentry; /* record sym */
-	sym = sym->datatype; /* accessing first element of the record */
-	while(sym != 0){
-		if (strcmp(field->stringval, sym->namestring) == 0) {
-			field->symtype = sym;
-			field->symentry = sym;
-			break;
-		}
-		sym = sym->datatype; /* accessing next elements of the record */
-
-	}
-	var->symentry = sym;
-	var->symtype = sym;
+	TOKEN var_org = var;
+	sym = symalloc_find(field->stringval);
+	field->symtype= sym;
+	field->symentry = sym;
 	tok2 = makeintc(field->symtype->offset);
-	return makearef(var, tok2, 0);
+	TOKEN t;
+	if (var_org->tokentype == OPERATOR && var_org->whichval == AREFOP) {
+		t = addoffs(var_org, tok2);
+	} else {
+		t = makearef(var_org, tok2, 0);
+	}
+	t->operands->symentry = sym->datatype;
+	t->operands->symtype = sym->datatype;
+	return t;
 }
 
 
@@ -945,23 +958,29 @@ TOKEN makearef(TOKEN var, TOKEN off, TOKEN tok) {
    subs is a list of subscript expressions.
    tok and tokb are (now) unused tokens that are recycled. */
 TOKEN arrayref(TOKEN arr, TOKEN tok, TOKEN subs, TOKEN tokb){
-	SYMBOL sym;
-	TOKEN field;
+    SYMBOL sym1;
+	TOKEN field = 0;
+    TOKEN sub_r;
+    TOKEN temp, field_temp;
 	int sym_size;
 	arr = findid(arr);
-	sym = arr->symentry; /* record sym */
-	sym = sym->datatype; /* accessing first element of the record */
-	while(sym->datatype != 0){
-		sym = sym->datatype; /* accessing next elements of the record */
-	}
-	arr->symentry = sym;
-	arr->symtype = sym;
-	sym_size = alignsize(sym);
-	sym = arr->symentry;
-	sym = sym->datatype;	
-	if (subs->tokentype == NUMBERTOK){
-		field = makeintc(sym_size*subs->intval);
-	}
+    sym1 = arr->symentry; /* store the original sym-entry */
+	sym1 = sym1->datatype;	
+    sub_r = subs;
+    while (sub_r != 0){
+    	temp = makeintc(sym1->lowbound*-1);
+		field_temp = copytok(sub_r);
+		field_temp->link = 0;
+    	if (field == 0) {
+    		field = field_temp; 
+    		field = mulint(addint(field,temp,0), sym1->datatype->size);
+    	} else {
+    		field = addint(field , mulint(addint(field_temp,temp,0),sym1->datatype->size),0);
+    	}
+    	sub_r = sub_r->link;
+    	sym1 = sym1->datatype;
+    }
+
 	return makearef(arr, field, 0);
 }
 
@@ -976,6 +995,10 @@ TOKEN makeplus(TOKEN lhs, TOKEN rhs, TOKEN tok) {
 /* addint adds integer off to expression exp, possibly using tok */
 TOKEN addint(TOKEN exp, TOKEN off, TOKEN tok) {
 	TOKEN tok1;
+	if (off->tokentype == NUMBERTOK && exp->tokentype == NUMBERTOK) {
+		exp->intval += off->intval;
+		return exp;
+	}
 	tok1 = makeop(PLUSOP);
 	return binop(tok1, exp, off);
 }
@@ -983,18 +1006,35 @@ TOKEN addint(TOKEN exp, TOKEN off, TOKEN tok) {
 /* addoffs adds offset, off, to an aref expression, exp */
 TOKEN addoffs(TOKEN exp, TOKEN off) {
 	TOKEN tok1;
-	tok1 = makeop(PLUSOP);
-	return binop(tok1, exp, off);
+    if (exp->operands->link->tokentype == NUMBERTOK && off->tokentype == NUMBERTOK) {
+        exp->operands->link->intval += off->intval;
+    } else {
+  	   tok1 = makeop(PLUSOP);
+       tok1 = binop(tok1, exp->operands->link, off);
+       exp->operands->link = tok1;
+    }
+	return exp;
 }
 
 /* mulint multiplies expression exp by integer n */
 TOKEN mulint(TOKEN exp, int n) {
 	TOKEN tok1;
 	TOKEN tok2;
+	if (exp->tokentype == NUMBERTOK) {
+		exp->intval *= n;
+		return exp;
+	}
 	tok1 = makeop(TIMESOP);
 	tok2 = makeintc(n);
 	return binop(tok1, exp, tok2);
 	
+}
+
+/* dopoint handles a ^ operator.
+   tok is a (now) unused token that is recycled. */
+TOKEN dopoint(TOKEN var, TOKEN tok) {
+	tok->operands = var;
+	return tok;
 }
 
 int wordaddress(int n, int wordsize)
