@@ -188,7 +188,7 @@ int user_label[MAX_USER_LABEL];
 			 ;
   unsigned_constant : variable 	
                     | NUMBER 
-					| NIL 
+					| NIL 		{ $$ = makeintc(0); }
 					| STRING
 					;
   variable   : IDENTIFIER                      { $$ = findid($1); }
@@ -354,19 +354,38 @@ TOKEN makeif(TOKEN tok, TOKEN exp, TOKEN thenpart, TOKEN elsepart)
    tok is a (now) unused token that is recycled. */
 TOKEN makefuncall(TOKEN tok, TOKEN fn, TOKEN args) {
 	TOKEN nTok;
+	TOKEN new_size;
+	TOKEN assign_op;
+	int datatype = -1;
 	SYMBOL sym;
 	TOKEN t1 = makeop(FUNCALLOP);
 	findid(fn); /* locate the function in the symbol table */
 	if (strcmp(fn->stringval, "new") == 0) {
-			printf("*****************lets handle new\n");
-			printf("the argument is %s\n", args->stringval);
 			nTok = findid(args);
 			sym = nTok->symtype; // This is the type symol
-			printf("symbol is %s\n", sym->namestring);
 			sym = sym->datatype; // This is the pointer symbol
-			printf("symbol is %s\n", sym->namestring);
 			sym = sym->datatype; // This is the actual record symbol
-			printf("symbol is %s with size %d \n", sym->namestring, sym->size);
+			new_size = makeintc(sym->size);
+			t1 = binop(t1, fn, new_size);
+			assign_op = makeop(ASSIGNOP);
+			return binop(assign_op, args, t1);
+	} else if (strcmp(fn->stringval, "writeln") == 0) {
+		if (args->tokentype == IDENTIFIERTOK || args->tokentype == NUMBERTOK) {
+			datatype = args->datatype;
+		} else if (args->tokentype == OPERATOR && args->whichval == AREFOP) {
+			datatype = args->operands->symtype->basicdt;
+		}
+		switch (datatype) {
+		case INTEGER:
+			strcpy(fn->stringval, "writelni");
+			break;
+		case REAL:
+		    strcpy(fn->stringval, "writelnf");
+		    break;
+		default:
+			break;
+		}
+		findid(fn);
 	}
 	return binop(t1, fn, args);
 }
